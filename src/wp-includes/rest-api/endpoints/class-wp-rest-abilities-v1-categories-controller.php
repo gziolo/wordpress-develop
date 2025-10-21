@@ -16,15 +16,7 @@ declare( strict_types = 1 );
  *
  * @see WP_REST_Controller
  */
-class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
-
-	/**
-	 * Default number of items per page for pagination.
-	 *
-	 * @since 6.9.0
-	 * @var int
-	 */
-	public const DEFAULT_PER_PAGE = 50;
+class WP_REST_Abilities_V1_Categories_Controller extends WP_REST_Controller {
 
 	/**
 	 * REST API namespace.
@@ -32,7 +24,7 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 	 * @since 6.9.0
 	 * @var string
 	 */
-	protected $namespace = 'wp/v2';
+	protected $namespace = 'wp-abilities/v1';
 
 	/**
 	 * REST API base route.
@@ -40,7 +32,7 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 	 * @since 6.9.0
 	 * @var string
 	 */
-	protected $rest_base = 'ability-categories';
+	protected $rest_base = 'categories';
 
 	/**
 	 * Registers the routes for ability categories.
@@ -57,7 +49,7 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 				array(
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'get_items' ),
-					'permission_callback' => array( $this, 'get_permissions_check' ),
+					'permission_callback' => array( $this, 'get_items_permissions_check' ),
 					'args'                => $this->get_collection_params(),
 				),
 				'schema' => array( $this, 'get_public_item_schema' ),
@@ -78,7 +70,7 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 				array(
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'get_item' ),
-					'permission_callback' => array( $this, 'get_permissions_check' ),
+					'permission_callback' => array( $this, 'get_item_permissions_check' ),
 				),
 				'schema' => array( $this, 'get_public_item_schema' ),
 			)
@@ -90,15 +82,14 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 	 *
 	 * @since 6.9.0
 	 *
-	 * @param WP_REST_Request<array<string, mixed>> $request Full details about the request.
+	 * @param WP_REST_Request $request Full details about the request.
 	 * @return WP_REST_Response Response object on success.
 	 */
 	public function get_items( $request ) {
 		$categories = wp_get_ability_categories();
 
-		$params   = $request->get_params();
-		$page     = $params['page'] ?? 1;
-		$per_page = $params['per_page'] ?? self::DEFAULT_PER_PAGE;
+		$page     = $request['page'];
+		$per_page = $request['per_page'];
 		$offset   = ( $page - 1 ) * $per_page;
 
 		$total_categories = count( $categories );
@@ -147,11 +138,11 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 	 *
 	 * @since 6.9.0
 	 *
-	 * @param WP_REST_Request<array<string, mixed>> $request Full details about the request.
+	 * @param WP_REST_Request $request Full details about the request.
 	 * @return WP_REST_Response|WP_Error Response object on success, or WP_Error object on failure.
 	 */
 	public function get_item( $request ) {
-		$category = wp_get_ability_category( $request->get_param( 'slug' ) );
+		$category = wp_get_ability_category( $request['slug'] );
 		if ( ! $category ) {
 			return new WP_Error(
 				'rest_ability_category_not_found',
@@ -169,10 +160,22 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 	 *
 	 * @since 6.9.0
 	 *
-	 * @param WP_REST_Request<array<string, mixed>> $request Full details about the request.
+	 * @param WP_REST_Request $request Full details about the request.
 	 * @return bool True if the request has read access.
 	 */
-	public function get_permissions_check( $request ) {
+	public function get_items_permissions_check( $request ) {
+		return current_user_can( 'read' );
+	}
+
+	/**
+	 * Checks if a given request has access to read an ability category.
+	 *
+	 * @since 6.9.0
+	 *
+	 * @param WP_REST_Request $request Full details about the request.
+	 * @return bool True if the request has read access.
+	 */
+	public function get_item_permissions_check( $request ) {
 		return current_user_can( 'read' );
 	}
 
@@ -181,8 +184,8 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 	 *
 	 * @since 6.9.0
 	 *
-	 * @param WP_Ability_Category                   $category The ability category object.
-	 * @param WP_REST_Request<array<string, mixed>> $request Request object.
+	 * @param WP_Ability_Category $category The ability category object.
+	 * @param WP_REST_Request     $request Request object.
 	 * @return WP_REST_Response Response object.
 	 */
 	public function prepare_item_for_response( $category, $request ) {
@@ -193,7 +196,7 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 			'meta'        => $category->get_meta(),
 		);
 
-		$context = $request->get_param( 'context' ) ?? 'view';
+		$context = $request['context'] ?? 'view';
 		$data    = $this->add_additional_fields_to_object( $data, $request );
 		$data    = $this->filter_response_by_context( $data, $context );
 
@@ -257,7 +260,6 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 					'readonly'    => true,
 				),
 			),
-			'required'   => array( 'slug', 'label', 'description', 'meta' ),
 		);
 
 		return $this->add_additional_fields_schema( $schema );
@@ -282,7 +284,7 @@ class WP_REST_Ability_Categories_Controller extends WP_REST_Controller {
 			'per_page' => array(
 				'description' => __( 'Maximum number of items to be returned in result set.' ),
 				'type'        => 'integer',
-				'default'     => self::DEFAULT_PER_PAGE,
+				'default'     => 50,
 				'minimum'     => 1,
 				'maximum'     => 100,
 			),
