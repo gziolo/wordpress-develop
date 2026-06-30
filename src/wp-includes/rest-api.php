@@ -432,6 +432,10 @@ function create_initial_rest_routes() {
 	// View Config.
 	$view_config_controller = new WP_REST_View_Config_Controller();
 	$view_config_controller->register_routes();
+
+	// Guideline Scopes.
+	$guideline_scopes_controller = new WP_REST_Guideline_Scopes_Controller();
+	$guideline_scopes_controller->register_routes();
 }
 
 /**

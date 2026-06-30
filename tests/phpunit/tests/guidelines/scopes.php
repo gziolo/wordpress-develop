@@ -1,0 +1,99 @@
+<?php
+/**
+ * Tests for the guideline scopes registry and slug helpers.
+ *
+ * @package WordPress
+ * @subpackage Guidelines
+ *
+ * @group guidelines
+ */
+class Tests_Guidelines_Scopes extends WP_UnitTestCase {
+
+	/**
+	 * @ticket 65476
+	 * @covers ::wp_guideline_scopes
+	 */
+	public function test_default_scopes_are_registered() {
+		$scopes = wp_guideline_scopes();
+
+		$this->assertSame( array( 'site', 'copy', 'images', 'additional' ), array_keys( $scopes ) );
+
+		foreach ( $scopes as $scope ) {
+			$this->assertArrayHasKey( 'title', $scope );
+			$this->assertArrayHasKey( 'description', $scope );
+			$this->assertArrayHasKey( 'order', $scope );
+			$this->assertIsInt( $scope['order'] );
+		}
+
+		$this->assertSame( 'Site', $scopes['site']['title'] );
+	}
+
+	/**
+	 * @ticket 65476
+	 * @covers ::wp_guideline_scopes
+	 */
+	public function test_scopes_are_filterable() {
+		$callback = static function ( $scopes ) {
+			$scopes['custom'] = array(
+				'title'       => 'Custom',
+				'description' => 'Custom scope.',
+				'order'       => 99,
+			);
+			return $scopes;
+		};
+
+		add_filter( 'wp_guideline_scopes', $callback );
+		$scopes = wp_guideline_scopes();
+		remove_filter( 'wp_guideline_scopes', $callback );
+
+		$this->assertArrayHasKey( 'custom', $scopes );
+		$this->assertSame( 'Custom', $scopes['custom']['title'] );
+	}
+
+	/**
+	 * @ticket 65476
+	 * @covers ::wp_guideline_max_length
+	 */
+	public function test_max_length_defaults_to_5000() {
+		$this->assertSame( 5000, wp_guideline_max_length() );
+	}
+
+	/**
+	 * @ticket 65476
+	 * @covers ::wp_guideline_max_length
+	 */
+	public function test_max_length_is_filterable() {
+		$callback = static function () {
+			return 10;
+		};
+
+		add_filter( 'wp_guideline_max_length', $callback );
+		$max = wp_guideline_max_length();
+		remove_filter( 'wp_guideline_max_length', $callback );
+
+		$this->assertSame( 10, $max );
+	}
+
+	public function data_scope_from_slug(): array {
+		return array(
+			'registry scope'  => array( 'guideline-site', 'site' ),
+			'another scope'   => array( 'guideline-images', 'images' ),
+			'block row'       => array( 'guideline-block-core-paragraph', null ),
+			'unknown scope'   => array( 'guideline-nope', null ),
+			'not a guideline' => array( 'note-site', null ),
+		);
+	}
+
+	/**
+	 * @ticket 65476
+	 * @covers ::wp_guideline_scope_from_slug
+	 *
+	 * @dataProvider data_scope_from_slug
+	 *
+	 * @param string      $slug     Post slug.
+	 * @param string|null $expected Expected scope key.
+	 */
+	public function test_scope_from_slug( $slug, $expected ) {
+		$this->assertSame( $expected, wp_guideline_scope_from_slug( $slug ) );
+	}
+}

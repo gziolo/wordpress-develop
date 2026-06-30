@@ -14017,6 +14017,27 @@ mockedApiResponse.Schema = {
                     }
                 ]
             }
+        },
+        "/wp/v2/knowledge/guideline-scopes": {
+            "namespace": "wp/v2",
+            "methods": [
+                "GET"
+            ],
+            "endpoints": [
+                {
+                    "methods": [
+                        "GET"
+                    ],
+                    "args": []
+                }
+            ],
+            "_links": {
+                "self": [
+                    {
+                        "href": "http://example.org/index.php?rest_route=/wp/v2/knowledge/guideline-scopes"
+                    }
+                ]
+            }
         }
     },
     "image_sizes": {
