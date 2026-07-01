@@ -4,10 +4,10 @@
  *
  * Guidelines are a consumer of the `wp_knowledge` storage primitive. Each
  * guideline is a `wp_knowledge` row that carries the `guideline` type term and a
- * `guideline-{scope}` slug. This file holds the scope registry, the slug
- * helpers, the content length limit, the structural normalizers applied on every
- * write path (the type reservation and the scope-title re-stamp), and the REST
- * content sanitizer that shapes untrusted input at the request boundary.
+ * `guideline-{scope}` slug. This file holds the scope registry, the scope
+ * resolver, the content length limit, and the single REST insert callback that
+ * shapes a guideline row: for a recognized scope slug it sets the guideline type,
+ * sets the title, and caps the content, all in one place.
  *
  * @package WordPress
  * @subpackage Guidelines
@@ -102,8 +102,10 @@ function wp_guideline_max_length(): int {
 /**
  * Resolves a registry scope key from a guideline row slug.
  *
- * Returns the scope key for `guideline-{scope}` slugs that match a registered
- * scope. Returns null for block rows (`guideline-block-*`) and unknown scopes.
+ * Returns the scope key for a `guideline-{scope}` slug that matches a registered
+ * scope. Per-block rows (`guideline-block-{block}`) resolve to the `blocks` scope
+ * when it is registered. Returns null for unknown scopes, and for block rows when
+ * the `blocks` scope is not registered.
  *
  * @since 7.1.0
  * @access private
@@ -112,113 +114,39 @@ function wp_guideline_max_length(): int {
  * @return string|null Scope key, or null if the slug is not a registered scope.
  */
 function wp_guideline_scope_from_slug( string $slug ): ?string {
-	if ( 0 !== strpos( $slug, 'guideline-' ) || 0 === strpos( $slug, 'guideline-block-' ) ) {
+	if ( ! str_starts_with( $slug, 'guideline-' ) ) {
 		return null;
 	}
 
-	$scope  = substr( $slug, strlen( 'guideline-' ) );
 	$scopes = wp_guideline_scopes();
+
+	// Per-block rows belong to the blocks scope when it is registered.
+	if ( str_starts_with( $slug, 'guideline-block-' ) && strlen( $slug ) > strlen( 'guideline-block-' ) ) {
+		return isset( $scopes['blocks'] ) ? 'blocks' : null;
+	}
+
+	$scope = substr( $slug, strlen( 'guideline-' ) );
 
 	return isset( $scopes[ $scope ] ) ? $scope : null;
 }
 
 /**
- * Reserves the `guideline` type term for guideline rows on save.
+ * Shapes a guideline row on the REST insert path.
  *
- * Hooked to the `save_post_wp_knowledge` action at a priority before the
- * knowledge primitive's default-term fallback (see
- * wp_knowledge_ensure_default_type_term()). Rows whose slug begins with
- * `guideline-` are forced onto the `guideline` type, so the prefix is reserved
- * for guideline-typed rows. Once the term is assigned the primitive fallback
- * sees a term and leaves the row alone.
+ * Hooked to the `rest_pre_insert_wp_knowledge` filter. This is the single place
+ * that shapes a guideline row, so every guideline-specific change is applied
+ * uniformly and nothing else needs to. Two gates decide whether the row is shaped:
+ * the slug must map to a registered scope (see wp_guideline_scope_from_slug(),
+ * which resolves both `guideline-{scope}` and per-block `guideline-block-*` rows),
+ * and, if the request selects any `wp_knowledge_type` terms, the `guideline` term
+ * must be among them. A row that fails either gate is left untouched, as is any
+ * row written outside REST. When both gates pass:
  *
- * @since 7.1.0
- * @access private
- *
- * @param int $post_id Saved post ID.
- */
-function wp_guideline_reserve_type_term( int $post_id ): void {
-	if ( wp_is_post_revision( $post_id ) ) {
-		return;
-	}
-
-	$post = get_post( $post_id );
-	if ( ! $post instanceof WP_Post || 0 !== strpos( $post->post_name, 'guideline-' ) ) {
-		return;
-	}
-
-	/*
-	 * Resolve to a term ID up front, creating the term on first use. The
-	 * site-locale label is applied by wp_knowledge_maybe_map_term_label() on the
-	 * wp_insert_term_data filter.
-	 */
-	$term = term_exists( 'guideline', 'wp_knowledge_type' );
-	if ( ! $term ) {
-		$term = wp_insert_term( 'guideline', 'wp_knowledge_type' );
-		if ( is_wp_error( $term ) ) {
-			return;
-		}
-	}
-
-	wp_set_object_terms( $post_id, (int) $term['term_id'], 'wp_knowledge_type' );
-}
-
-/**
- * Re-stamps a guideline row's title from the scope registry on save.
- *
- * Hooked to the `wp_insert_post_data` filter so the invariant holds no matter
- * how the row is written, not just over REST. For a `guideline-{scope}` slug that
- * matches a registered scope, the title is set from wp_guideline_scopes() in the
- * site locale, replacing any caller-provided title. Block rows
- * (`guideline-block-*`) and unknown scopes are left untouched, so they keep their
- * given title. The filter runs after wp_unique_post_slug(), so a suffixed
- * duplicate slug no longer matches a scope and keeps its title.
- *
- * @since 7.1.0
- * @access private
- *
- * @param array $data    Slashed, sanitized post data about to be written.
- * @param array $postarr Sanitized (and slashed) array of post data as passed.
- * @return array Possibly modified post data.
- */
-function wp_guideline_restamp_scope_title( $data, $postarr ) {
-	if ( ! isset( $data['post_type'] ) || 'wp_knowledge' !== $data['post_type'] ) {
-		return $data;
-	}
-
-	$scope = wp_guideline_scope_from_slug( isset( $data['post_name'] ) ? (string) $data['post_name'] : '' );
-	if ( null === $scope ) {
-		return $data;
-	}
-
-	$switched_locale = switch_to_locale( get_locale() );
-	$scopes          = wp_guideline_scopes();
-	if ( $switched_locale ) {
-		restore_previous_locale();
-	}
-
-	if ( isset( $scopes[ $scope ]['title'] ) ) {
-		// $data is slashed at this filter, so slash the registry title to match.
-		$data['post_title'] = wp_slash( $scopes[ $scope ]['title'] );
-	}
-
-	return $data;
-}
-
-/**
- * Sanitizes guideline content on the REST insert path.
- *
- * Hooked to the `rest_pre_insert_wp_knowledge` filter. For rows whose slug begins
- * with `guideline-`, the content is reduced to plain text and capped at
- * wp_guideline_max_length(). This shapes untrusted client input, so it lives at
- * the REST boundary. The type term and the scope title are structural invariants
- * applied on every write path (see wp_guideline_reserve_type_term() and
- * wp_guideline_restamp_scope_title()).
- *
- * Slug uniqueness is left to WordPress. The first save of a scope keeps its exact
- * slug, later saves reuse that row by ID, and any other row with the same desired
- * slug is suffixed by wp_unique_post_slug(). A Guidelines screen reads the
- * published row by its exact slug, so suffixed rows are ignored.
+ * - The `guideline` type is set when the request selects no term. The standard
+ *   REST term handling assigns it after insert.
+ * - A single-row scope takes its registry title in the site locale. The multi-row
+ *   `blocks` scope keeps each row's block-name title.
+ * - Content is reduced to plain text and capped at wp_guideline_max_length().
  *
  * @since 7.1.0
  * @access private
@@ -227,31 +155,69 @@ function wp_guideline_restamp_scope_title( $data, $postarr ) {
  * @param WP_REST_Request $request       Request object.
  * @return stdClass Prepared post object.
  */
-function wp_guideline_sanitize_rest_content( $prepared_post, $request ) {
-	if ( ! isset( $prepared_post->post_content ) ) {
-		return $prepared_post;
-	}
-
+function wp_guideline_prepare_rest_row( $prepared_post, $request ) {
+	// Resolve the target slug from the request, or from the existing row on an
+	// update that does not send one.
 	$slug = '';
 	if ( ! empty( $prepared_post->post_name ) ) {
-		$slug = $prepared_post->post_name;
+		$slug = (string) $prepared_post->post_name;
 	} elseif ( ! empty( $prepared_post->ID ) ) {
 		$existing = get_post( $prepared_post->ID );
 		if ( $existing instanceof WP_Post ) {
-			$slug = $existing->post_name;
+			$slug = (string) $existing->post_name;
 		}
 	}
 
-	if ( 0 !== strpos( (string) $slug, 'guideline-' ) ) {
+	$scope = wp_guideline_scope_from_slug( $slug );
+	if ( null === $scope ) {
 		return $prepared_post;
 	}
 
-	$content = sanitize_textarea_field( $prepared_post->post_content );
-	$max     = wp_guideline_max_length();
-	if ( mb_strlen( $content, 'UTF-8' ) > $max ) {
-		$content = mb_substr( $content, 0, $max, 'UTF-8' );
+	// This is a guideline row when the request selects no type, in which case the
+	// server assigns it the guideline type, or when the type it selects includes
+	// the guideline term. Any other selection means the row is not a guideline, so
+	// it is left untouched.
+	$selected_terms = $request['wp_knowledge_type'];
+	$guideline_term = term_exists( 'guideline', 'wp_knowledge_type' );
+	$guideline_id   = is_array( $guideline_term ) ? (int) $guideline_term['term_id'] : 0;
+
+	if ( empty( $selected_terms ) ) {
+		// Assign the guideline type, creating the term on first use.
+		if ( 0 === $guideline_id ) {
+			$created = wp_insert_term( 'guideline', 'wp_knowledge_type' );
+			if ( is_wp_error( $created ) ) {
+				return $prepared_post;
+			}
+			$guideline_id = (int) $created['term_id'];
+		}
+		$request['wp_knowledge_type'] = array( $guideline_id );
+	} elseif ( 0 === $guideline_id || ! in_array( $guideline_id, array_map( 'intval', (array) $selected_terms ), true ) ) {
+		return $prepared_post;
 	}
-	$prepared_post->post_content = $content;
+
+	// A single-row scope takes its registry title in the site locale. The blocks
+	// scope is multi-row, so its per-block rows keep their block-name title.
+	if ( 'blocks' !== $scope ) {
+		$switched_locale = switch_to_locale( get_locale() );
+		$scopes          = wp_guideline_scopes();
+		if ( $switched_locale ) {
+			restore_previous_locale();
+		}
+
+		if ( isset( $scopes[ $scope ]['title'] ) ) {
+			$prepared_post->post_title = $scopes[ $scope ]['title'];
+		}
+	}
+
+	// Reduce content to plain text and cap its length.
+	if ( isset( $prepared_post->post_content ) ) {
+		$content = sanitize_textarea_field( $prepared_post->post_content );
+		$max     = wp_guideline_max_length();
+		if ( mb_strlen( $content, 'UTF-8' ) > $max ) {
+			$content = mb_substr( $content, 0, $max, 'UTF-8' );
+		}
+		$prepared_post->post_content = $content;
+	}
 
 	return $prepared_post;
 }

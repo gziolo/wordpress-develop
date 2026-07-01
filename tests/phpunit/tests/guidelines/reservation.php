@@ -1,9 +1,10 @@
 <?php
 /**
- * Tests for the guideline-row reservation and REST insert guard.
+ * Tests for guideline-row shaping on write.
  *
- * Covers the forced `guideline` type, slug uniqueness handling, scope-title
- * re-stamping, and content sanitization on the REST insert path.
+ * Covers the single REST insert callback that, for a recognized scope slug, forces
+ * the guideline type, sets the title, and caps the content. Also covers slug
+ * uniqueness handling.
  *
  * @package WordPress
  * @subpackage Guidelines
@@ -37,13 +38,13 @@ class Tests_Guidelines_Reservation extends WP_Test_REST_TestCase {
 	}
 
 	/**
-	 * A row created with a `guideline-` slug is forced onto the `guideline`
-	 * type and, with no collision, keeps its exact slug.
+	 * A REST write with a recognized scope slug gets the guideline type and, with
+	 * no collision, keeps its exact slug.
 	 *
 	 * @ticket 65476
-	 * @covers ::wp_guideline_reserve_type_term
+	 * @covers ::wp_guideline_prepare_rest_row
 	 */
-	public function test_prefixed_slug_forces_guideline_term_and_keeps_slug() {
+	public function test_sets_guideline_type_for_scope_slug() {
 		wp_set_current_user( self::$admin_id );
 
 		$response = $this->create_row(
@@ -64,11 +65,128 @@ class Tests_Guidelines_Reservation extends WP_Test_REST_TestCase {
 	}
 
 	/**
+	 * A REST write whose slug is not a registered scope is left untouched.
+	 *
+	 * @ticket 65476
+	 * @covers ::wp_guideline_prepare_rest_row
+	 */
+	public function test_does_not_set_type_for_unrecognized_slug() {
+		wp_set_current_user( self::$admin_id );
+
+		$response = $this->create_row(
+			array(
+				'slug'    => 'guideline-nope',
+				'content' => 'Text.',
+				'status'  => 'publish',
+			)
+		);
+
+		$this->assertSame( 201, $response->get_status() );
+
+		$terms = wp_get_object_terms( $response->get_data()['id'], 'wp_knowledge_type', array( 'fields' => 'slugs' ) );
+		$this->assertNotContains( 'guideline', $terms );
+	}
+
+	/**
+	 * A REST write with a per-block slug gets the guideline type when the blocks
+	 * scope is registered.
+	 *
+	 * @ticket 65476
+	 * @covers ::wp_guideline_prepare_rest_row
+	 */
+	public function test_sets_guideline_type_for_block_slug() {
+		wp_set_current_user( self::$admin_id );
+
+		$response = $this->create_row(
+			array(
+				'slug'    => 'guideline-block-core-paragraph',
+				'title'   => 'core/paragraph',
+				'content' => 'Keep paragraphs short.',
+				'status'  => 'publish',
+			)
+		);
+
+		$this->assertSame( 201, $response->get_status() );
+
+		$terms = wp_get_object_terms( $response->get_data()['id'], 'wp_knowledge_type', array( 'fields' => 'slugs' ) );
+		$this->assertSame( array( 'guideline' ), $terms );
+	}
+
+	/**
+	 * A recognized slug whose selected type does not include the guideline term is
+	 * not a guideline row. It is left untouched: the type is kept and the scope
+	 * title is not stamped.
+	 *
+	 * @ticket 65476
+	 * @covers ::wp_guideline_prepare_rest_row
+	 */
+	public function test_leaves_row_when_selected_type_excludes_guideline() {
+		wp_set_current_user( self::$admin_id );
+
+		$note = term_exists( 'note', 'wp_knowledge_type' );
+		if ( ! $note ) {
+			$note = wp_insert_term( 'note', 'wp_knowledge_type' );
+		}
+		$note_id = (int) $note['term_id'];
+
+		$response = $this->create_row(
+			array(
+				'slug'              => 'guideline-site',
+				'title'             => 'My title',
+				'content'           => 'Text.',
+				'status'            => 'publish',
+				'wp_knowledge_type' => array( $note_id ),
+			)
+		);
+
+		$this->assertSame( 201, $response->get_status() );
+		$post = get_post( $response->get_data()['id'] );
+
+		$terms = wp_get_object_terms( $post->ID, 'wp_knowledge_type', array( 'fields' => 'slugs' ) );
+		$this->assertSame( array( 'note' ), $terms );
+		$this->assertSame( 'My title', $post->post_title );
+	}
+
+	/**
+	 * A recognized slug whose selected type includes the guideline term is a
+	 * guideline row, so it is shaped: the scope title is stamped.
+	 *
+	 * @ticket 65476
+	 * @covers ::wp_guideline_prepare_rest_row
+	 */
+	public function test_shapes_row_when_selected_type_includes_guideline() {
+		wp_set_current_user( self::$admin_id );
+
+		// A first guideline write creates the guideline term.
+		$this->create_row(
+			array(
+				'slug'    => 'guideline-copy',
+				'content' => 'Seed.',
+				'status'  => 'publish',
+			)
+		);
+		$guideline_id = (int) term_exists( 'guideline', 'wp_knowledge_type' )['term_id'];
+
+		$response = $this->create_row(
+			array(
+				'slug'              => 'guideline-images',
+				'title'             => 'Bogus client title',
+				'content'           => 'Square images only.',
+				'status'            => 'publish',
+				'wp_knowledge_type' => array( $guideline_id ),
+			)
+		);
+
+		$this->assertSame( 201, $response->get_status() );
+		$this->assertSame( 'Images', get_post( $response->get_data()['id'] )->post_title );
+	}
+
+	/**
 	 * A second create with an already-used `guideline-` slug is not rejected.
 	 * WordPress suffixes the slug, and the published row keeps the exact slug.
 	 *
 	 * @ticket 65476
-	 * @covers ::wp_guideline_restamp_scope_title
+	 * @covers ::wp_guideline_prepare_rest_row
 	 */
 	public function test_duplicate_slug_is_suffixed_not_rejected() {
 		wp_set_current_user( self::$admin_id );
@@ -95,11 +213,10 @@ class Tests_Guidelines_Reservation extends WP_Test_REST_TestCase {
 	}
 
 	/**
-	 * A content-only update of an existing row succeeds. The slug and title are
-	 * left untouched.
+	 * A content-only update of an existing row succeeds and stores the new content.
 	 *
 	 * @ticket 65476
-	 * @covers ::wp_guideline_sanitize_rest_content
+	 * @covers ::wp_guideline_prepare_rest_row
 	 */
 	public function test_content_only_update_succeeds() {
 		wp_set_current_user( self::$admin_id );
@@ -123,13 +240,13 @@ class Tests_Guidelines_Reservation extends WP_Test_REST_TestCase {
 	}
 
 	/**
-	 * Registry scope titles are re-stamped from wp_guideline_scopes(), ignoring
-	 * any client-provided title.
+	 * Single-row scope titles are set from wp_guideline_scopes(), ignoring any
+	 * client-provided title.
 	 *
 	 * @ticket 65476
-	 * @covers ::wp_guideline_restamp_scope_title
+	 * @covers ::wp_guideline_prepare_rest_row
 	 */
-	public function test_scope_title_restamped_from_registry() {
+	public function test_sets_scope_title_from_registry() {
 		wp_set_current_user( self::$admin_id );
 
 		$response = $this->create_row(
@@ -146,10 +263,11 @@ class Tests_Guidelines_Reservation extends WP_Test_REST_TestCase {
 	}
 
 	/**
-	 * Block rows keep the client-provided canonical block name as the title.
+	 * Per-block rows keep the client-provided canonical block name as the title,
+	 * because the blocks scope is multi-row.
 	 *
 	 * @ticket 65476
-	 * @covers ::wp_guideline_restamp_scope_title
+	 * @covers ::wp_guideline_prepare_rest_row
 	 */
 	public function test_block_row_keeps_canonical_title() {
 		wp_set_current_user( self::$admin_id );
@@ -168,10 +286,10 @@ class Tests_Guidelines_Reservation extends WP_Test_REST_TestCase {
 	}
 
 	/**
-	 * Content is sanitized to plain text and capped at the guideline length.
+	 * Content is reduced to plain text and capped at the guideline length.
 	 *
 	 * @ticket 65476
-	 * @covers ::wp_guideline_sanitize_rest_content
+	 * @covers ::wp_guideline_prepare_rest_row
 	 */
 	public function test_content_sanitized_and_capped() {
 		wp_set_current_user( self::$admin_id );
@@ -191,27 +309,5 @@ class Tests_Guidelines_Reservation extends WP_Test_REST_TestCase {
 
 		$this->assertStringNotContainsString( '<script', $content );
 		$this->assertLessThanOrEqual( 5000, mb_strlen( $content, 'UTF-8' ) );
-	}
-
-	/**
-	 * The scope title is re-stamped even when the row is created outside REST,
-	 * because the invariant is enforced on the generic save path.
-	 *
-	 * @ticket 65476
-	 * @covers ::wp_guideline_restamp_scope_title
-	 */
-	public function test_scope_title_restamped_on_direct_insert() {
-		$post_id = wp_insert_post(
-			array(
-				'post_type'    => 'wp_knowledge',
-				'post_status'  => 'private',
-				'post_name'    => 'guideline-copy',
-				'post_title'   => 'Bogus title',
-				'post_content' => 'Be concise.',
-			)
-		);
-
-		$this->assertGreaterThan( 0, $post_id );
-		$this->assertSame( 'Copy', get_post( $post_id )->post_title );
 	}
 }

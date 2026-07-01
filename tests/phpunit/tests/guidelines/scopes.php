@@ -78,11 +78,14 @@ class Tests_Guidelines_Scopes extends WP_UnitTestCase {
 
 	public function data_scope_from_slug(): array {
 		return array(
-			'registry scope'  => array( 'guideline-site', 'site' ),
-			'another scope'   => array( 'guideline-images', 'images' ),
-			'block row'       => array( 'guideline-block-core-paragraph', null ),
-			'unknown scope'   => array( 'guideline-nope', null ),
-			'not a guideline' => array( 'note-site', null ),
+			'registry scope'   => array( 'guideline-site', 'site' ),
+			'another scope'    => array( 'guideline-images', 'images' ),
+			'blocks scope'     => array( 'guideline-blocks', 'blocks' ),
+			'block row'        => array( 'guideline-block-core-paragraph', 'blocks' ),
+			'empty block name' => array( 'guideline-block-', null ),
+			'unknown scope'    => array( 'guideline-nope', null ),
+			'bare prefix'      => array( 'guideline-', null ),
+			'not a guideline'  => array( 'note-site', null ),
 		);
 	}
 
@@ -97,5 +100,25 @@ class Tests_Guidelines_Scopes extends WP_UnitTestCase {
 	 */
 	public function test_scope_from_slug( $slug, $expected ) {
 		$this->assertSame( $expected, wp_guideline_scope_from_slug( $slug ) );
+	}
+
+	/**
+	 * Per-block rows resolve to the blocks scope only while it is registered.
+	 *
+	 * @ticket 65476
+	 * @covers ::wp_guideline_scope_from_slug
+	 */
+	public function test_block_row_scope_requires_blocks_scope() {
+		$this->assertSame( 'blocks', wp_guideline_scope_from_slug( 'guideline-block-core-paragraph' ) );
+
+		add_filter(
+			'wp_guideline_scopes',
+			static function ( $scopes ) {
+				unset( $scopes['blocks'] );
+				return $scopes;
+			}
+		);
+
+		$this->assertNull( wp_guideline_scope_from_slug( 'guideline-block-core-paragraph' ) );
 	}
 }

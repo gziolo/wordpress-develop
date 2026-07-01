@@ -793,13 +793,10 @@ add_filter( 'rest_wp_navigation_item_schema', array( 'WP_Navigation_Fallback', '
 add_action( 'wp_after_insert_post', 'wp_knowledge_ensure_default_type_term', 10, 2 );
 add_filter( 'wp_insert_term_data', 'wp_knowledge_maybe_map_term_label', 10, 2 );
 
-// Guidelines, a wp_knowledge consumer. The type reservation and scope-title
-// re-stamp are structural invariants enforced on every write path. The
-// reservation runs before the knowledge default-term fallback (priority 10) so it
-// can claim the type. Content sanitization shapes untrusted input over REST.
-add_action( 'save_post_wp_knowledge', 'wp_guideline_reserve_type_term', 9 );
-add_filter( 'wp_insert_post_data', 'wp_guideline_restamp_scope_title', 10, 2 );
-add_filter( 'rest_pre_insert_wp_knowledge', 'wp_guideline_sanitize_rest_content', 10, 2 );
+// Guidelines, a wp_knowledge consumer. A single callback shapes a guideline row
+// on the REST insert path. For a slug that maps to a registered scope it forces
+// the guideline type, sets the title, and caps the content.
+add_filter( 'rest_pre_insert_wp_knowledge', 'wp_guideline_prepare_rest_row', 10, 2 );
 
 // Fluid typography.
 add_filter( 'render_block', 'wp_render_typography_support', 10, 2 );
