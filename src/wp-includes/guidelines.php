@@ -17,11 +17,13 @@
 /**
  * Retrieves the registered guideline scopes, keyed by slug.
  *
- * Scopes are the sections shown on a Guidelines management screen. Each scope is
- * backed by at most one `guideline`-typed `wp_knowledge` row whose slug is
- * `guideline-{scope}`. Plugins can register their own scopes via the
- * {@see 'wp_guideline_scopes'} filter. The registry carries identity and
- * presentation only. Rows are created on first save.
+ * A scope groups guideline content under a stable key. Each scope is backed by
+ * at most one `guideline`-typed `wp_knowledge` row whose slug is
+ * `guideline-{scope}`. Rows are created on first save. Plugins can register or
+ * remove scopes via the {@see 'wp_guideline_scopes'} filter.
+ *
+ * The `blocks` scope is the one exception. It has no single `guideline-blocks`
+ * row. Its guidelines are stored per block in `guideline-block-*` rows.
  *
  * @since 7.1.0
  *
@@ -31,9 +33,9 @@
  *     @type array ...$0 {
  *         Data for a single scope.
  *
- *         @type string $title       Human-readable section title.
- *         @type string $description Human-readable section description.
- *         @type int    $order       Sort order on a Guidelines screen.
+ *         @type string $title       Human-readable scope title.
+ *         @type string $description Human-readable scope description.
+ *         @type int    $order       Sort order for the scope.
  *     }
  * }
  * @phpstan-return array<non-empty-string, array{title: string, description: string, order: int}>
@@ -64,6 +66,11 @@ function wp_guideline_scopes(): array {
 				'title'       => __( 'Images' ),
 				'description' => __( 'Outline your style, dimensions, formats, mood and aesthetic preferences.' ),
 				'order'       => 30,
+			),
+			'blocks'     => array(
+				'title'       => __( 'Blocks' ),
+				'description' => __( 'Create tailored guidelines for specific block types.' ),
+				'order'       => 40,
 			),
 			'additional' => array(
 				'title'       => __( 'Additional' ),

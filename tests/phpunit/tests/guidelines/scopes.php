@@ -16,7 +16,7 @@ class Tests_Guidelines_Scopes extends WP_UnitTestCase {
 	public function test_default_scopes_are_registered() {
 		$scopes = wp_guideline_scopes();
 
-		$this->assertSame( array( 'site', 'copy', 'images', 'additional' ), array_keys( $scopes ) );
+		$this->assertSame( array( 'site', 'copy', 'images', 'blocks', 'additional' ), array_keys( $scopes ) );
 
 		foreach ( $scopes as $scope ) {
 			$this->assertArrayHasKey( 'title', $scope );
@@ -33,18 +33,19 @@ class Tests_Guidelines_Scopes extends WP_UnitTestCase {
 	 * @covers ::wp_guideline_scopes
 	 */
 	public function test_scopes_are_filterable() {
-		$callback = static function ( $scopes ) {
-			$scopes['custom'] = array(
-				'title'       => 'Custom',
-				'description' => 'Custom scope.',
-				'order'       => 99,
-			);
-			return $scopes;
-		};
+		add_filter(
+			'wp_guideline_scopes',
+			static function ( $scopes ) {
+				$scopes['custom'] = array(
+					'title'       => 'Custom',
+					'description' => 'Custom scope.',
+					'order'       => 99,
+				);
+				return $scopes;
+			}
+		);
 
-		add_filter( 'wp_guideline_scopes', $callback );
 		$scopes = wp_guideline_scopes();
-		remove_filter( 'wp_guideline_scopes', $callback );
 
 		$this->assertArrayHasKey( 'custom', $scopes );
 		$this->assertSame( 'Custom', $scopes['custom']['title'] );
@@ -63,13 +64,14 @@ class Tests_Guidelines_Scopes extends WP_UnitTestCase {
 	 * @covers ::wp_guideline_max_length
 	 */
 	public function test_max_length_is_filterable() {
-		$callback = static function () {
-			return 10;
-		};
+		add_filter(
+			'wp_guideline_max_length',
+			static function () {
+				return 10;
+			}
+		);
 
-		add_filter( 'wp_guideline_max_length', $callback );
 		$max = wp_guideline_max_length();
-		remove_filter( 'wp_guideline_max_length', $callback );
 
 		$this->assertSame( 10, $max );
 	}
