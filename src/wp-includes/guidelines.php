@@ -1,13 +1,6 @@
 <?php
 /**
- * Guidelines API: Public functions for the guideline consumer layer.
- *
- * Guidelines are a consumer of the `wp_knowledge` storage primitive. Each
- * guideline is a `wp_knowledge` row that carries the `guideline` type term and a
- * `guideline-{scope}` slug. This file holds the scope registry, the scope
- * resolver, the content length limit, and the single REST insert callback that
- * shapes a guideline row: for a recognized scope slug it sets the guideline type,
- * sets the title, and caps the content, all in one place.
+ * Guidelines API: the guideline consumer layer over the wp_knowledge primitive.
  *
  * @package WordPress
  * @subpackage Guidelines
@@ -17,13 +10,12 @@
 /**
  * Retrieves the registered guideline scopes, keyed by slug.
  *
- * A scope groups guideline content under a stable key. Each scope is backed by
- * at most one `guideline`-typed `wp_knowledge` row whose slug is
- * `guideline-{scope}`. Rows are created on first save. Plugins can register or
- * remove scopes via the {@see 'wp_guideline_scopes'} filter.
+ * Each scope is a section of guidance backed by a `guideline`-typed `wp_knowledge`
+ * row with a `guideline-{scope}` slug. Filter {@see 'wp_guideline_scopes'} to add
+ * or remove scopes for a site.
  *
- * The `blocks` scope is the one exception. It has no single `guideline-blocks`
- * row. Its guidelines are stored per block in `guideline-block-*` rows.
+ * The `blocks` scope is the exception: it has no single row. Its guidance lives in
+ * per-block `guideline-block-*` rows so each block type can carry its own.
  *
  * @since 7.1.0
  *
@@ -100,12 +92,12 @@ function wp_guideline_max_length(): int {
 }
 
 /**
- * Resolves a registry scope key from a guideline row slug.
+ * Maps a guideline row slug to the scope that owns it.
  *
- * Returns the scope key for a `guideline-{scope}` slug that matches a registered
- * scope. Per-block rows (`guideline-block-{block}`) resolve to the `blocks` scope
- * when it is registered. Returns null for unknown scopes, and for block rows when
- * the `blocks` scope is not registered.
+ * Use this to tell whether a `wp_knowledge` row is a guideline and, if so, which
+ * scope it belongs to. Per-block rows (`guideline-block-*`) belong to the `blocks`
+ * scope. A null return means the slug is not a registered scope, so callers can
+ * treat it as a recognized-guideline check.
  *
  * @since 7.1.0
  * @access private
@@ -131,22 +123,19 @@ function wp_guideline_scope_from_slug( string $slug ): ?string {
 }
 
 /**
- * Shapes a guideline row on the REST insert path.
+ * Normalizes a guideline row as it is written over REST.
  *
- * Hooked to the `rest_pre_insert_wp_knowledge` filter. This is the single place
- * that shapes a guideline row, so every guideline-specific change is applied
- * uniformly and nothing else needs to. Two gates decide whether the row is shaped:
- * the slug must map to a registered scope (see wp_guideline_scope_from_slug(),
- * which resolves both `guideline-{scope}` and per-block `guideline-block-*` rows),
- * and, if the request selects any `wp_knowledge_type` terms, the `guideline` term
- * must be among them. A row that fails either gate is left untouched, as is any
- * row written outside REST. When both gates pass:
+ * Hooked to `rest_pre_insert_wp_knowledge`. Guideline rows are only created and
+ * edited over REST, so this one callback owns every guideline-specific change.
+ * Keeping them in one place makes it clear they apply to guideline rows and
+ * nothing else.
  *
- * - The `guideline` type is set when the request selects no term. The standard
- *   REST term handling assigns it after insert.
- * - A single-row scope takes its registry title in the site locale. The multi-row
- *   `blocks` scope keeps each row's block-name title.
- * - Content is reduced to plain text and capped at wp_guideline_max_length().
+ * A row counts as a guideline only when its slug maps to a registered scope and it
+ * is typed (or left for the server to type) as `guideline`. A request that types
+ * the row as something else is left alone, so a guideline slug cannot be
+ * repurposed. For a guideline row the callback fills in the `guideline` type when
+ * the request omits it, applies the scope title (block rows keep their own), and
+ * caps the content length.
  *
  * @since 7.1.0
  * @access private
@@ -173,10 +162,8 @@ function wp_guideline_prepare_rest_row( $prepared_post, $request ) {
 		return $prepared_post;
 	}
 
-	// This is a guideline row when the request selects no type, in which case the
-	// server assigns it the guideline type, or when the type it selects includes
-	// the guideline term. Any other selection means the row is not a guideline, so
-	// it is left untouched.
+	// Assign the guideline type when the request selects none. If it selects a
+	// type, it must include the guideline term, or the row is not a guideline.
 	$selected_terms = $request['wp_knowledge_type'];
 	$guideline_term = term_exists( 'guideline', 'wp_knowledge_type' );
 	$guideline_id   = is_array( $guideline_term ) ? (int) $guideline_term['term_id'] : 0;

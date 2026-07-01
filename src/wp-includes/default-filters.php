@@ -792,10 +792,6 @@ add_filter( 'rest_wp_navigation_item_schema', array( 'WP_Navigation_Fallback', '
 // wp_knowledge post type.
 add_action( 'wp_after_insert_post', 'wp_knowledge_ensure_default_type_term', 10, 2 );
 add_filter( 'wp_insert_term_data', 'wp_knowledge_maybe_map_term_label', 10, 2 );
-
-// Guidelines, a wp_knowledge consumer. A single callback shapes a guideline row
-// on the REST insert path. For a slug that maps to a registered scope it forces
-// the guideline type, sets the title, and caps the content.
 add_filter( 'rest_pre_insert_wp_knowledge', 'wp_guideline_prepare_rest_row', 10, 2 );
 
 // Fluid typography.
