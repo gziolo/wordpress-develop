@@ -310,4 +310,34 @@ class Tests_Guidelines_Reservation extends WP_Test_REST_TestCase {
 		$this->assertStringNotContainsString( '<script', $content );
 		$this->assertLessThanOrEqual( 5000, mb_strlen( $content, 'UTF-8' ) );
 	}
+
+	/**
+	 * When the guideline term cannot be created, the write is rejected with the
+	 * error instead of saving an untyped row.
+	 *
+	 * @ticket 65476
+	 * @covers ::wp_guideline_prepare_rest_row
+	 */
+	public function test_rejects_write_when_guideline_term_cannot_be_created() {
+		wp_set_current_user( self::$admin_id );
+
+		// Force term creation to fail so the guideline term cannot be created.
+		add_filter(
+			'pre_insert_term',
+			static function () {
+				return new WP_Error( 'test_term_blocked', 'No terms today.' );
+			}
+		);
+
+		$response = $this->create_row(
+			array(
+				'slug'    => 'guideline-copy',
+				'content' => 'Use active voice.',
+				'status'  => 'publish',
+			)
+		);
+
+		$this->assertSame( 500, $response->get_status() );
+		$this->assertSame( 'rest_cannot_create_guideline_type', $response->get_data()['code'] );
+	}
 }

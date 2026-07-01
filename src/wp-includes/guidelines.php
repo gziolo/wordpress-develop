@@ -140,11 +140,16 @@ function wp_guideline_scope_from_slug( string $slug ): ?string {
  * @since 7.1.0
  * @access private
  *
- * @param stdClass        $prepared_post Prepared post object.
- * @param WP_REST_Request $request       Request object.
- * @return stdClass Prepared post object.
+ * @param stdClass|WP_Error $prepared_post Prepared post, or WP_Error from a prior filter.
+ * @param WP_REST_Request   $request       Request object.
+ * @return stdClass|WP_Error Prepared post object, or a WP_Error to reject the write.
  */
 function wp_guideline_prepare_rest_row( $prepared_post, $request ) {
+	// A prior filter may have rejected the write. Pass the error through untouched.
+	if ( is_wp_error( $prepared_post ) ) {
+		return $prepared_post;
+	}
+
 	// Resolve the target slug from the request, or from the existing row on an
 	// update that does not send one.
 	$slug = '';
@@ -169,11 +174,16 @@ function wp_guideline_prepare_rest_row( $prepared_post, $request ) {
 	$guideline_id   = is_array( $guideline_term ) ? (int) $guideline_term['term_id'] : 0;
 
 	if ( empty( $selected_terms ) ) {
-		// Assign the guideline type, creating the term on first use.
+		// Assign the guideline type, creating the term on first use. Reject the
+		// write if the term cannot be created.
 		if ( 0 === $guideline_id ) {
 			$created = wp_insert_term( 'guideline', 'wp_knowledge_type' );
 			if ( is_wp_error( $created ) ) {
-				return $prepared_post;
+				return new WP_Error(
+					'rest_cannot_create_guideline_type',
+					__( 'The guideline type could not be created.' ),
+					array( 'status' => 500 )
+				);
 			}
 			$guideline_id = (int) $created['term_id'];
 		}
