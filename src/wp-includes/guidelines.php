@@ -4,7 +4,7 @@
  *
  * @package WordPress
  * @subpackage Guidelines
- * @since 7.1.0
+ * @since 7.2.0
  */
 
 /**
@@ -17,7 +17,7 @@
  * The `blocks` scope is the exception: it has no single row. Its guidance lives in
  * per-block `guideline-block-*` rows so each block type can carry its own.
  *
- * @since 7.1.0
+ * @since 7.2.0
  *
  * @return array {
  *     Slug-keyed map of guideline scopes.
@@ -36,7 +36,7 @@ function wp_guideline_scopes(): array {
 	/**
 	 * Filters the guideline scopes available on this site.
 	 *
-	 * @since 7.1.0
+	 * @since 7.2.0
 	 *
 	 * @param array $scopes Slug-keyed map of guideline scopes. See wp_guideline_scopes().
 	 * @phpstan-param array<non-empty-string, array{title: string, description: string, order: int}> $scopes
@@ -76,7 +76,7 @@ function wp_guideline_scopes(): array {
 /**
  * Returns the maximum length, in characters, of a guideline row's content.
  *
- * @since 7.1.0
+ * @since 7.2.0
  *
  * @return int Maximum number of characters allowed in guideline content.
  */
@@ -84,7 +84,7 @@ function wp_guideline_max_length(): int {
 	/**
 	 * Filters the maximum length, in characters, of a guideline row's content.
 	 *
-	 * @since 7.1.0
+	 * @since 7.2.0
 	 *
 	 * @param int $max_length Maximum number of characters. Default 5000.
 	 */
@@ -99,7 +99,7 @@ function wp_guideline_max_length(): int {
  * scope. A null return means the slug is not a registered scope, so callers can
  * treat it as a recognized-guideline check.
  *
- * @since 7.1.0
+ * @since 7.2.0
  * @access private
  *
  * @param string $slug Post slug.
@@ -137,7 +137,7 @@ function wp_guideline_scope_from_slug( string $slug ): ?string {
  * the request omits it, applies the scope title (block rows keep their own), and
  * caps the content length.
  *
- * @since 7.1.0
+ * @since 7.2.0
  * @access private
  *
  * @param stdClass|WP_Error $prepared_post Prepared post, or WP_Error from a prior filter.

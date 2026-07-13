@@ -4,7 +4,7 @@
  *
  * @package WordPress
  * @subpackage REST_API
- * @since 7.1.0
+ * @since 7.2.0
  */
 
 /**
@@ -15,7 +15,7 @@
  * semantics. A Guidelines screen preloads it, then reads and writes the scope
  * rows through the standard `/wp/v2/knowledge` collection.
  *
- * @since 7.1.0
+ * @since 7.2.0
  *
  * @see WP_REST_Controller
  */
@@ -24,7 +24,7 @@ class WP_REST_Guideline_Scopes_Controller extends WP_REST_Controller {
 	/**
 	 * Constructor.
 	 *
-	 * @since 7.1.0
+	 * @since 7.2.0
 	 */
 	public function __construct() {
 		$this->namespace = 'wp/v2';
@@ -34,7 +34,7 @@ class WP_REST_Guideline_Scopes_Controller extends WP_REST_Controller {
 	/**
 	 * Registers the routes for guideline scopes.
 	 *
-	 * @since 7.1.0
+	 * @since 7.2.0
 	 *
 	 * @see register_rest_route()
 	 */
@@ -58,7 +58,7 @@ class WP_REST_Guideline_Scopes_Controller extends WP_REST_Controller {
 	 *
 	 * Gated on the knowledge read capability, matching the data routes.
 	 *
-	 * @since 7.1.0
+	 * @since 7.2.0
 	 *
 	 * @param WP_REST_Request $request Full details about the request.
 	 * @return true|WP_Error True if the request has read access, WP_Error object otherwise.
@@ -80,7 +80,7 @@ class WP_REST_Guideline_Scopes_Controller extends WP_REST_Controller {
 	 *
 	 * Labels are resolved at request time, in the request locale.
 	 *
-	 * @since 7.1.0
+	 * @since 7.2.0
 	 *
 	 * @param WP_REST_Request $request Full details about the request.
 	 * @return WP_REST_Response Response object.
@@ -99,7 +99,7 @@ class WP_REST_Guideline_Scopes_Controller extends WP_REST_Controller {
 	/**
 	 * Prepares a single guideline scope for response.
 	 *
-	 * @since 7.1.0
+	 * @since 7.2.0
 	 *
 	 * @param array           $item    Scope data with a `slug` key.
 	 * @param WP_REST_Request $request Request object.
@@ -132,7 +132,7 @@ class WP_REST_Guideline_Scopes_Controller extends WP_REST_Controller {
 	/**
 	 * Retrieves the guideline scope schema, conforming to JSON Schema.
 	 *
-	 * @since 7.1.0
+	 * @since 7.2.0
 	 *
 	 * @return array Item schema data.
 	 */
