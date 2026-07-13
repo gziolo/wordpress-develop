@@ -81,7 +81,7 @@ class Tests_Guidelines_Scopes extends WP_UnitTestCase {
 			'registry scope'   => array( 'guideline-site', 'site' ),
 			'another scope'    => array( 'guideline-images', 'images' ),
 			'blocks scope'     => array( 'guideline-blocks', 'blocks' ),
-			'block row'        => array( 'guideline-block-core-paragraph', 'blocks' ),
+			'block row'        => array( 'guideline-block-core_paragraph', 'blocks' ),
 			'empty block name' => array( 'guideline-block-', null ),
 			'unknown scope'    => array( 'guideline-nope', null ),
 			'bare prefix'      => array( 'guideline-', null ),
@@ -109,7 +109,7 @@ class Tests_Guidelines_Scopes extends WP_UnitTestCase {
 	 * @covers ::wp_guideline_scope_from_slug
 	 */
 	public function test_block_row_scope_requires_blocks_scope() {
-		$this->assertSame( 'blocks', wp_guideline_scope_from_slug( 'guideline-block-core-paragraph' ) );
+		$this->assertSame( 'blocks', wp_guideline_scope_from_slug( 'guideline-block-core_paragraph' ) );
 
 		add_filter(
 			'wp_guideline_scopes',
@@ -119,6 +119,44 @@ class Tests_Guidelines_Scopes extends WP_UnitTestCase {
 			}
 		);
 
-		$this->assertNull( wp_guideline_scope_from_slug( 'guideline-block-core-paragraph' ) );
+		$this->assertNull( wp_guideline_scope_from_slug( 'guideline-block-core_paragraph' ) );
+	}
+
+	/**
+	 * A registered scope keyed under `block-` wins over the per-block namespace.
+	 *
+	 * Real per-block slugs always encode the block namespace separator as `_`
+	 * (`core/paragraph` becomes `guideline-block-core_paragraph`), so a scope key
+	 * made only of hyphens like `block-editor-media-instructions` never matches a
+	 * real block row. That is why the collision is very unlikely in practice.
+	 *
+	 * @ticket 65476
+	 * @covers ::wp_guideline_scope_from_slug
+	 */
+	public function test_registered_scope_wins_over_block_namespace() {
+		$slug = 'guideline-block-editor-media-instructions';
+
+		// Before the scope exists the slug looks like a per-block row, so it is
+		// swallowed by the blocks scope.
+		$this->assertSame( 'blocks', wp_guideline_scope_from_slug( $slug ) );
+
+		add_filter(
+			'wp_guideline_scopes',
+			static function ( $scopes ) {
+				$scopes['block-editor-media-instructions'] = array(
+					'title'       => 'Media instructions',
+					'description' => '',
+					'order'       => 60,
+				);
+				return $scopes;
+			}
+		);
+
+		// Once registered, the exact scope key wins and resolves to itself.
+		$this->assertSame( 'block-editor-media-instructions', wp_guideline_scope_from_slug( $slug ) );
+
+		// A real per-block row keeps the namespace separator as `_`, so it never
+		// collides with such a scope key and still resolves to the blocks scope.
+		$this->assertSame( 'blocks', wp_guideline_scope_from_slug( 'guideline-block-core_paragraph' ) );
 	}
 }
