@@ -60,7 +60,12 @@ function get_locale() {
 		if ( wp_installing() ) {
 			$ms_locale = get_site_option( 'WPLANG' );
 		} else {
-			$ms_locale = get_option( 'WPLANG' );
+			/*
+			 * A missing site language must fall back to the network language. An explicit
+			 * false default prevents the registered WPLANG default from hiding that case
+			 * when the locale is calculated after core settings have been registered.
+			 */
+			$ms_locale = get_option( 'WPLANG', false );
 			if ( false === $ms_locale ) {
 				$ms_locale = get_site_option( 'WPLANG' );
 			}

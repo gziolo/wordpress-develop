@@ -42,11 +42,31 @@ class Tests_L10n_GetLocale extends WP_UnitTestCase {
 	public function test_network_option_should_be_fallback_on_multisite() {
 		global $locale;
 
+		// Recalculate after init, when WPLANG already has a registered default of en_US.
 		$locale = null;
 
 		update_site_option( 'WPLANG', 'es_ES' );
 
 		$this->assertSame( 'es_ES', get_locale() );
+	}
+
+	/**
+	 * An empty site language selects English instead of the network language.
+	 *
+	 * @ticket 64605
+	 * @group ms-required
+	 *
+	 * @global string $locale The current locale.
+	 */
+	public function test_empty_site_language_should_take_precedence_on_multisite() {
+		global $locale;
+
+		$locale = null;
+
+		update_option( 'WPLANG', '' );
+		update_site_option( 'WPLANG', 'es_ES' );
+
+		$this->assertSame( 'en_US', get_locale() );
 	}
 
 	/**
