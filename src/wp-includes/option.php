@@ -2738,15 +2738,23 @@ function set_site_transient( $transient, $value, $expiration = 0 ) {
 /**
  * Registers default settings available in WordPress.
  *
- * The settings registered here are primarily useful for the REST API and the
- * Abilities API, so this does not encompass all settings available in WordPress.
+ * Registers metadata for core settings used by the REST API and the Abilities API.
+ * This runs on `init` so the metadata is available whichever API is used first.
+ * It does not cover every WordPress setting or change which options admin forms can save.
  *
  * @since 4.7.0
  * @since 6.0.1 The `show_on_front`, `page_on_front`, and `page_for_posts` options were added.
  * @since 7.2.0 The `wp_page_for_privacy_policy` option was registered, exposed as `page_for_privacy_policy`.
  * @since 7.2.0 Added `show_in_abilities` support for the exposed settings.
+ *              Registration runs on `init` without changing the admin allowed-options lists.
+ *
+ * @global array $new_allowed_options Additional options that admin settings forms may save.
  */
 function register_initial_settings() {
+	global $new_allowed_options;
+
+	$allowed_options = $new_allowed_options;
+
 	register_setting(
 		'general',
 		'blogname',
@@ -2996,44 +3004,22 @@ function register_initial_settings() {
 			'description'       => __( 'Allow people to submit comments on new posts.' ),
 		)
 	);
-}
-
-/**
- * Registers the default settings when the Abilities API initializes.
- *
- * The default settings are registered on `rest_api_init`, which fires lazily and
- * independently of `wp_abilities_api_init`: on cron, WP-CLI, or any request where
- * abilities are used before the REST server loads, it may not have fired, or may be
- * mid-fire at a priority before register_initial_settings() runs. This makes sure the
- * settings exist before the core abilities read them. Registering them again later on
- * `rest_api_init` is harmless.
- *
- * @since 7.2.0
- * @access private
- *
- * @global array $new_allowed_options
- */
-function _wp_register_initial_settings_for_abilities(): void {
-	global $new_allowed_options;
-
-	if ( did_action( 'rest_api_init' ) && ! doing_action( 'rest_api_init' ) ) {
-		return;
-	}
-
-	$allowed_options = $new_allowed_options;
-
-	register_initial_settings();
 
 	/*
-	 * Registering a setting also allows it on the options screen of its group. Restore
-	 * the list, so saving Settings > General does not try to save `admin_email`, which
-	 * that screen sends as `new_admin_email`.
+	 * Core settings screens define which options their forms may save. Registering metadata
+	 * must preserve those lists. For example, the email form submits new_admin_email so that
+	 * the address can be confirmed before admin_email changes.
 	 */
 	$new_allowed_options = $allowed_options;
 }
 
 /**
  * Registers a setting and its data.
+ *
+ * Settings exposed through the Abilities API must be registered on `init` or earlier.
+ * Attach filters that change setting arguments before registering the setting.
+ * Abilities may read the settings as soon as `init` finishes, so later registrations
+ * trigger an incorrect usage notice but still register the setting for other consumers.
  *
  * @since 2.7.0
  * @since 3.0.0 The `misc` option group was deprecated.
@@ -3068,7 +3054,7 @@ function _wp_register_initial_settings_for_abilities(): void {
  *                                            When true, it uses the same name and schema as `$show_in_rest`.
  *                                            It may also be an array with 'name' and 'schema' keys, used instead of
  *                                            `$show_in_rest` rather than merged with it.
- *                                            Settings registered after abilities initialize are not exposed.
+ *                                            Register the setting on `init` or earlier.
  *     @type mixed         $default           Default value when calling `get_option()`.
  * }
  */
@@ -3111,6 +3097,18 @@ function register_setting( $option_group, $option_name, $args = array() ) {
 	$args = apply_filters( 'register_setting_args', $args, $defaults, $option_group, $option_name );
 
 	$args = wp_parse_args( $args, $defaults );
+
+	if ( ! empty( $args['show_in_abilities'] ) && did_action( 'init' ) && ! doing_action( 'init' ) ) {
+		_doing_it_wrong(
+			__FUNCTION__,
+			sprintf(
+				/* translators: %s: Setting name. */
+				__( 'The setting "%s" is exposed to abilities and must be registered on the init action or earlier.' ),
+				$option_name
+			),
+			'7.2.0'
+		);
+	}
 
 	// Require an item schema when registering settings with an array type.
 	if ( false !== $args['show_in_rest'] && 'array' === $args['type'] && ( ! is_array( $args['show_in_rest'] ) || ! isset( $args['show_in_rest']['schema']['items'] ) ) ) {

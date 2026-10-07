@@ -6,6 +6,109 @@
 class Tests_Option_Registration extends WP_UnitTestCase {
 
 	/**
+	 * Settings exposed to abilities must be registered before init finishes.
+	 *
+	 * Later registrations must warn developers because abilities may already have
+	 * read the settings. Settings not exposed to abilities have no such restriction.
+	 *
+	 * @ticket 64605
+	 * @covers ::register_setting
+	 * @dataProvider data_ability_setting_registration_timing
+	 *
+	 * @param string     $timing        Registration timing relative to init.
+	 * @param bool|array $exposure      The show_in_abilities argument.
+	 * @param bool       $expect_notice Whether an incorrect usage notice is expected.
+	 */
+	public function test_ability_setting_registration_timing( $timing, $exposure, $expect_notice ) {
+		global $wp_actions, $wp_current_filter;
+
+		$actions_backup = $wp_actions;
+		$filter_backup  = $wp_current_filter;
+		if ( $expect_notice ) {
+			$this->setExpectedIncorrectUsage( 'register_setting' );
+		}
+
+		try {
+			if ( 'before' === $timing ) {
+				unset( $wp_actions['init'] );
+			} else {
+				$wp_actions['init'] = 1;
+			}
+			if ( 'during' === $timing ) {
+				$wp_current_filter[] = 'init';
+			}
+
+			register_setting( 'test_group', 'test_option', array( 'show_in_abilities' => $exposure ) );
+
+			// The notice must not prevent other code from using the setting.
+			$this->assertSame( $exposure, get_registered_settings()['test_option']['show_in_abilities'] );
+		} finally {
+			unregister_setting( 'test_group', 'test_option' );
+			$wp_actions        = $actions_backup;
+			$wp_current_filter = $filter_backup;
+		}
+	}
+
+	/**
+	 * Provides registration times and exposure options covered by the notice.
+	 *
+	 * @return array Registration timing, exposure, and whether a notice is expected.
+	 */
+	public static function data_ability_setting_registration_timing() {
+		return array(
+			'before init'                   => array( 'before', true, false ),
+			'during init'                   => array( 'during', true, false ),
+			'after init'                    => array( 'after', true, true ),
+			'custom public name after init' => array( 'after', array( 'name' => 'public_name' ), true ),
+			'not exposed after init'        => array( 'after', false, false ),
+		);
+	}
+
+	/**
+	 * The late-registration notice must use the exposure value set by filters.
+	 *
+	 * Filters can enable or disable exposure, regardless of the original arguments.
+	 *
+	 * @ticket 64605
+	 * @covers ::register_setting
+	 * @dataProvider data_filtered_ability_exposure
+	 *
+	 * @param bool $exposed Whether the filter exposes the setting to abilities.
+	 */
+	public function test_late_registration_checks_filtered_exposure( $exposed ) {
+		// The test bootstrap has already completed init.
+		if ( $exposed ) {
+			$this->setExpectedIncorrectUsage( 'register_setting' );
+		}
+		$filter = static function ( $args ) use ( $exposed ) {
+			$args['show_in_abilities'] = $exposed;
+			return $args;
+		};
+
+		add_filter( 'register_setting_args', $filter );
+		try {
+			register_setting( 'test_group', 'test_option', array( 'show_in_abilities' => ! $exposed ) );
+
+			$this->assertSame( $exposed, get_registered_settings()['test_option']['show_in_abilities'] );
+		} finally {
+			remove_filter( 'register_setting_args', $filter );
+			unregister_setting( 'test_group', 'test_option' );
+		}
+	}
+
+	/**
+	 * Provides filters that enable or disable exposure to abilities.
+	 *
+	 * @return array Exposure values set by the filter.
+	 */
+	public static function data_filtered_ability_exposure() {
+		return array(
+			'filter enables exposure'  => array( true ),
+			'filter disables exposure' => array( false ),
+		);
+	}
+
+	/**
 	 * @covers ::register_setting
 	 */
 	public function test_register() {

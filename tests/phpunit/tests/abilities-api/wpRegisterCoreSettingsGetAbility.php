@@ -6,7 +6,7 @@ declare( strict_types=1 );
  * Tests for the core/settings-get ability shipped with the Abilities API.
  *
  * @covers wp_register_core_abilities
- * @covers _wp_register_initial_settings_for_abilities
+ * @covers register_initial_settings
  * @covers WP_Abilities_Settings
  *
  * @group abilities-api
@@ -14,41 +14,38 @@ declare( strict_types=1 );
 class Tests_Abilities_API_WpRegisterCoreSettingsGetAbility extends WP_UnitTestCase {
 
 	/**
-	 * Backup of the `$wp_registered_settings` global, restored after the class.
+	 * Registered settings to restore after these tests.
 	 *
 	 * @var array|null
 	 */
 	private static $registered_settings_backup;
 
 	/**
-	 * Registers the core abilities before the class.
+	 * Makes core abilities and a custom setting available to these tests.
 	 *
-	 * The ability is registered under the ordering that used to break it: no settings
-	 * registered yet and `rest_api_init` never fired, as on cron, WP-CLI, or any request
-	 * that uses the Abilities API before the REST server loads. Core must register its
-	 * initial settings when abilities initialize (see _wp_register_initial_settings_for_abilities()).
+	 * The test bootstrap has already registered core settings during init.
 	 *
 	 * @since 7.2.0
 	 */
 	public static function wpSetUpBeforeClass(): void {
-		global $wp_registered_settings, $wp_actions;
+		global $wp_registered_settings;
 		self::$registered_settings_backup = $wp_registered_settings;
-		$rest_api_init_count              = $wp_actions['rest_api_init'] ?? null;
-		$wp_registered_settings           = array();
-		unset( $wp_actions['rest_api_init'] );
 
-		// A non-core setting flagged for the Abilities API, to verify that any registered
-		// setting (not just the core ones) is exposed by the ability.
-		register_setting(
-			'general',
-			'core_settings_get_ability_test_option',
-			array(
-				'type'              => 'integer',
-				'label'             => 'Custom Ability Setting',
-				'description'       => 'A custom setting exposed through the Abilities API.',
-				'show_in_abilities' => true,
-				'default'           => 42,
-			)
+		// Include a custom setting to verify that plugins can expose settings too.
+		self::run_on_init(
+			static function () {
+				register_setting(
+					'general',
+					'core_settings_get_ability_test_option',
+					array(
+						'type'              => 'integer',
+						'label'             => 'Custom Ability Setting',
+						'description'       => 'A custom setting exposed through the Abilities API.',
+						'show_in_abilities' => true,
+						'default'           => 42,
+					)
+				);
+			}
 		);
 
 		// Temporarily remove the unhook functions so we can register core abilities.
@@ -61,7 +58,7 @@ class Tests_Abilities_API_WpRegisterCoreSettingsGetAbility extends WP_UnitTestCa
 		do_action( 'wp_abilities_api_init' );
 
 		/*
-		 * Restore the hooks and the `rest_api_init` count right away instead of after the class.
+		 * Restore the hooks right away instead of after the class.
 		 * The first test of a run snapshots the hooks and every test resets them to that snapshot,
 		 * so changes left here would leak into every later test whenever this class runs first.
 		 */
@@ -69,13 +66,10 @@ class Tests_Abilities_API_WpRegisterCoreSettingsGetAbility extends WP_UnitTestCa
 		remove_action( 'wp_abilities_api_init', 'wp_register_core_abilities' );
 		add_action( 'wp_abilities_api_categories_init', '_unhook_core_ability_categories_registration', 1 );
 		add_action( 'wp_abilities_api_init', '_unhook_core_abilities_registration', 1 );
-		if ( null !== $rest_api_init_count ) {
-			$wp_actions['rest_api_init'] = $rest_api_init_count;
-		}
 	}
 
 	/**
-	 * Cleans up registered abilities, categories and settings after the class.
+	 * Restores settings and removes test abilities so they do not affect other tests.
 	 *
 	 * @since 7.2.0
 	 */
@@ -94,10 +88,36 @@ class Tests_Abilities_API_WpRegisterCoreSettingsGetAbility extends WP_UnitTestCa
 	}
 
 	/**
-	 * Registers the core/settings-get ability again inside a faked init action.
+	 * Provides the init context required to register settings used by a test.
 	 *
-	 * The class setup has already registered it through wp_register_core_abilities(), so
-	 * the existing copy is unregistered first.
+	 * The test bootstrap has already completed init. Simulating its context avoids
+	 * rerunning unrelated callbacks attached to that action.
+	 *
+	 * @param callable $callback The registration callback.
+	 */
+	private static function run_on_init( callable $callback ): void {
+		global $wp_current_filter;
+
+		$wp_current_filter[] = 'init';
+		try {
+			$callback();
+		} finally {
+			array_pop( $wp_current_filter );
+		}
+	}
+
+	/**
+	 * Core settings metadata must be available without starting a REST API request.
+	 *
+	 * @ticket 64605
+	 */
+	public function test_core_settings_registration_runs_on_init(): void {
+		$this->assertSame( 10, has_action( 'init', 'register_initial_settings' ) );
+		$this->assertFalse( has_action( 'rest_api_init', 'register_initial_settings' ) );
+	}
+
+	/**
+	 * Refreshes the ability to include settings added or changed by a test.
 	 */
 	private function register_ability(): void {
 		if ( wp_has_ability( 'core/settings-get' ) ) {
@@ -106,72 +126,126 @@ class Tests_Abilities_API_WpRegisterCoreSettingsGetAbility extends WP_UnitTestCa
 
 		global $wp_current_filter;
 		$wp_current_filter[] = 'wp_abilities_api_init'; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Faking the action context to register within it.
-		( new WP_Abilities_Settings() )->register();
+		try {
+			( new WP_Abilities_Settings() )->register();
+		} finally {
+			array_pop( $wp_current_filter );
+		}
 	}
 
 	/**
-	 * Logs in as an administrator so abilities gated behind `manage_options` can run.
+	 * Uses an administrator account with permission to read settings.
 	 */
 	private function become_admin(): void {
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
 	}
 
 	/**
-	 * Core settings are exposed even when the abilities registry initializes in a request
-	 * where `rest_api_init` (which registers core's initial settings) has never fired.
-	 *
-	 * The class setup registers the ability with no settings registered up front, so this
-	 * asserts that core registered its initial settings when abilities initialized.
+	 * The ability exposes core settings registered during init by the test bootstrap.
 	 *
 	 * @ticket 64605
 	 */
-	public function test_core_settings_get_exposes_initial_settings_without_rest_api_init(): void {
+	public function test_core_settings_get_exposes_registered_core_settings(): void {
 		$ability = wp_get_ability( 'core/settings-get' );
 
-		$this->assertArrayHasKey( 'title', $ability->get_output_schema()['properties'], 'The output schema should describe the site title, registered when abilities initialized.' );
+		$this->assertArrayHasKey( 'title', $ability->get_output_schema()['properties'], 'The output schema should describe the site title, registered during init.' );
 
 		$this->become_admin();
 		$result = $ability->execute( array( 'fields' => array( 'title' ) ) );
 
-		$this->assertArrayHasKey( 'title', $result, 'The site title should be returned, registered when abilities initialized.' );
+		$this->assertArrayHasKey( 'title', $result, 'The site title should be returned, registered during init.' );
 	}
 
 	/**
-	 * Tests that registering initial settings for abilities does not pollute $new_allowed_options.
+	 * Registering core metadata must not change the options saved by admin forms.
 	 *
 	 * @ticket 64605
 	 */
 	public function test_register_preserves_new_allowed_options(): void {
 		global $new_allowed_options;
 
-		$prev_actions_count  = $GLOBALS['wp_actions']['rest_api_init'] ?? null;
-		$prev_allowed_backup = $new_allowed_options;
-		unset( $GLOBALS['wp_actions']['rest_api_init'] );
-
-		// Simulate an existing custom setting already in $new_allowed_options.
-		$new_allowed_options = array(
-			'general' => array( 'my_custom_option' ),
-		);
-
+		$backup   = $new_allowed_options;
+		$expected = array( 'general' => array( 'my_custom_option' ) );
 		try {
-			_wp_register_initial_settings_for_abilities();
+			$new_allowed_options = $expected;
+			self::run_on_init( 'register_initial_settings' );
 
-			// 'admin_email' must NOT be in $new_allowed_options['general'].
-			$this->assertNotContains( 'admin_email', $new_allowed_options['general'], 'Registering the initial settings for abilities should not allow admin_email on the general options screen.' );
-			// Prior allowed options must be preserved.
-			$this->assertContains( 'my_custom_option', $new_allowed_options['general'], 'The options allowed before should still be allowed.' );
+			$this->assertSame( $expected, $new_allowed_options );
 		} finally {
-			$new_allowed_options = $prev_allowed_backup;
-			if ( null === $prev_actions_count ) {
-				unset( $GLOBALS['wp_actions']['rest_api_init'] );
-			} else {
-				$GLOBALS['wp_actions']['rest_api_init'] = $prev_actions_count;
-			}
+			$new_allowed_options = $backup;
 		}
 	}
 
 	/**
-	 * Neither settings ability is registered when no setting is exposed to abilities.
+	 * A registration filter can exclude a core setting from the ability schemas.
+	 *
+	 * @ticket 64605
+	 */
+	public function test_registration_filter_can_hide_a_core_setting(): void {
+		global $wp_registered_settings;
+
+		$backup = $wp_registered_settings;
+		$filter = static function ( $args, $defaults, $group, $name ) {
+			if ( 'blogname' === $name ) {
+				$args['show_in_abilities'] = false;
+			}
+			return $args;
+		};
+
+		add_filter( 'register_setting_args', $filter, 10, 4 );
+		try {
+			self::run_on_init( 'register_initial_settings' );
+			$this->register_ability();
+			$ability = wp_get_ability( 'core/settings-get' );
+
+			$this->assertArrayNotHasKey( 'title', $ability->get_output_schema()['properties'] );
+			$this->assertNotContains( 'title', $ability->get_input_schema()['properties']['fields']['items']['enum'] );
+		} finally {
+			remove_filter( 'register_setting_args', $filter, 10 );
+			$wp_registered_settings = $backup;
+			$this->register_ability();
+		}
+	}
+
+	/**
+	 * A filter can expose a plugin setting with a custom public name and label.
+	 *
+	 * The ability must use the filtered metadata in its schema and results.
+	 *
+	 * @ticket 64605
+	 */
+	public function test_registration_filter_controls_plugin_setting_schema(): void {
+		$option = 'filtered_ability_setting';
+		$filter = static function ( $args, $defaults, $group, $name ) use ( $option ) {
+			if ( $option === $name ) {
+				$args['show_in_abilities'] = array( 'name' => 'public_setting' );
+				$args['label']             = 'Filtered label';
+			}
+			return $args;
+		};
+
+		add_filter( 'register_setting_args', $filter, 10, 4 );
+		try {
+			self::run_on_init(
+				static function () use ( $option ) {
+					register_setting( 'general', $option, array( 'default' => 'plugin value' ) );
+				}
+			);
+			$this->register_ability();
+			$this->become_admin();
+			$ability = wp_get_ability( 'core/settings-get' );
+
+			$this->assertSame( 'Filtered label', $ability->get_output_schema()['properties']['public_setting']['title'] );
+			$this->assertSame( array( 'public_setting' => 'plugin value' ), $ability->execute( array( 'fields' => array( 'public_setting' ) ) ) );
+		} finally {
+			remove_filter( 'register_setting_args', $filter, 10 );
+			unregister_setting( 'general', $option );
+			$this->register_ability();
+		}
+	}
+
+	/**
+	 * The settings ability is not registered when no settings are exposed to it.
 	 *
 	 * @ticket 64605
 	 */
@@ -239,28 +313,32 @@ class Tests_Abilities_API_WpRegisterCoreSettingsGetAbility extends WP_UnitTestCa
 	 * @ticket 64605
 	 */
 	public function test_core_settings_get_inherits_rest_api_exposure(): void {
-		register_setting(
-			'general',
-			'core_settings_get_inherit_test_option',
-			array(
-				'show_in_rest'      => array(
-					'name'   => 'inherited_name',
-					'schema' => array( 'enum' => array( 'a', 'b' ) ),
-				),
-				'show_in_abilities' => true,
-			)
-		);
-		register_setting(
-			'general',
-			'core_settings_get_override_test_option',
-			array(
-				'show_in_rest'      => array(
-					'name' => 'rest_name',
-				),
-				'show_in_abilities' => array(
-					'name' => 'ability_name',
-				),
-			)
+		self::run_on_init(
+			static function () {
+				register_setting(
+					'general',
+					'core_settings_get_inherit_test_option',
+					array(
+						'show_in_rest'      => array(
+							'name'   => 'inherited_name',
+							'schema' => array( 'enum' => array( 'a', 'b' ) ),
+						),
+						'show_in_abilities' => true,
+					)
+				);
+				register_setting(
+					'general',
+					'core_settings_get_override_test_option',
+					array(
+						'show_in_rest'      => array(
+							'name' => 'rest_name',
+						),
+						'show_in_abilities' => array(
+							'name' => 'ability_name',
+						),
+					)
+				);
+			}
 		);
 
 		try {
@@ -488,13 +566,17 @@ class Tests_Abilities_API_WpRegisterCoreSettingsGetAbility extends WP_UnitTestCa
 		// A numeric name, which PHP turns into an integer array key, must still match `fields`.
 		$option = '123';
 
-		register_setting(
-			'general',
-			$option,
-			array(
-				'type'              => $type,
-				'show_in_abilities' => array( 'schema' => $schema ),
-			)
+		self::run_on_init(
+			static function () use ( $option, $type, $schema ) {
+				register_setting(
+					'general',
+					$option,
+					array(
+						'type'              => $type,
+						'show_in_abilities' => array( 'schema' => $schema ),
+					)
+				);
+			}
 		);
 		update_option( $option, $stored );
 
@@ -512,7 +594,7 @@ class Tests_Abilities_API_WpRegisterCoreSettingsGetAbility extends WP_UnitTestCa
 	}
 
 	/**
-	 * Data provider.
+	 * Provides stored values that need type conversion or fail schema validation.
 	 *
 	 * @return array<string, array{0: string, 1: mixed, 2: string|null, 3?: array<string, mixed>}> Stored values, and the JSON they are read as.
 	 */
@@ -550,13 +632,17 @@ class Tests_Abilities_API_WpRegisterCoreSettingsGetAbility extends WP_UnitTestCa
 	public function test_core_settings_get_skips_a_setting_with_an_unsupported_type(): void {
 		$option = 'core_settings_get_ability_type_test_option';
 
-		register_setting(
-			'general',
-			$option,
-			array(
-				'type'              => 'foo',
-				'show_in_abilities' => true,
-			)
+		self::run_on_init(
+			static function () use ( $option ) {
+				register_setting(
+					'general',
+					$option,
+					array(
+						'type'              => 'foo',
+						'show_in_abilities' => true,
+					)
+				);
+			}
 		);
 		update_option( $option, 'value' );
 

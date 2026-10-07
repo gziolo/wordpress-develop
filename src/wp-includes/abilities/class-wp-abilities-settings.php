@@ -12,19 +12,14 @@ declare( strict_types = 1 );
 /**
  * Core class used to register settings-related abilities.
  *
- * Provides the read-only `core/settings-get` ability and the shared building blocks
- * (exposed-settings discovery and schema generation) that are intended to also back a
- * future write-oriented `core/settings-update` ability.
+ * Provides the read-only `core/settings-get` ability. Its schemas and results use
+ * the same set of settings, selected when the ability is registered.
  *
- * Unlike the other core abilities, which are self-contained closures registered directly
- * in wp_register_core_abilities(), the settings abilities live in a dedicated class
- * because they share state: the set of exposed settings is computed once at registration
- * and reused by the input schema, the output schema, and the execute callback, and the
- * same helpers are meant to be shared with the future write ability.
- *
- * The exposed settings are captured when the ability registers, the first time the abilities
- * registry is used in a request. Settings registered later in that request are not exposed.
- * Core registers its own settings in time, see _wp_register_initial_settings_for_abilities().
+ * Abilities are registered on `wp_abilities_api_init`, when the abilities registry
+ * is first used after `init`. Core settings and plugin settings with `show_in_abilities`
+ * must be registered on `init` or earlier so they are available at that point.
+ * Filters that change setting arguments must be attached before the settings are
+ * registered. Later changes are not reflected in an already registered ability.
  *
  * This class is part of WordPress' internal implementation of the core abilities and is
  * not part of the public API. It may be changed or removed at any time without notice.
@@ -45,7 +40,10 @@ final class WP_Abilities_Settings {
 	private const CATEGORY = 'site';
 
 	/**
-	 * Settings exposed through the Abilities API, computed once at registration.
+	 * Settings available to the ability when it was registered.
+	 *
+	 * Keeping this set unchanged ensures that the ability returns only settings
+	 * described by its schemas.
 	 *
 	 * @since 7.2.0
 	 * @var array<string, array{option: string, group: string, schema: array<string, mixed>}>
