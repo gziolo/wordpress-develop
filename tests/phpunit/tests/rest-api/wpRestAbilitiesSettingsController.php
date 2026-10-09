@@ -43,22 +43,16 @@ class Tests_REST_API_WpRestAbilitiesSettingsController extends WP_UnitTestCase {
 	/**
 	 * Sets up users and registers the core abilities.
 	 *
-	 * The abilities are registered as on a request that uses the Abilities API before
-	 * the REST server loads, so core must register its initial settings when abilities
-	 * initialize (see _wp_register_initial_settings_for_abilities()).
+	 * The test bootstrap has already registered core settings during init, before
+	 * either the abilities registry or the REST server needs their metadata.
 	 *
 	 * @since 7.2.0
 	 *
 	 * @param WP_UnitTest_Factory $factory The unit test factory.
 	 */
 	public static function wpSetUpBeforeClass( $factory ): void {
-		global $wp_actions;
-
 		self::$admin_id      = $factory->user->create( array( 'role' => 'administrator' ) );
 		self::$subscriber_id = $factory->user->create( array( 'role' => 'subscriber' ) );
-
-		$rest_api_init_count = $wp_actions['rest_api_init'] ?? null;
-		unset( $wp_actions['rest_api_init'] );
 
 		remove_action( 'wp_abilities_api_categories_init', '_unhook_core_ability_categories_registration', 1 );
 		remove_action( 'wp_abilities_api_init', '_unhook_core_abilities_registration', 1 );
@@ -76,18 +70,14 @@ class Tests_REST_API_WpRestAbilitiesSettingsController extends WP_UnitTestCase {
 		do_action( 'wp_abilities_api_init' );
 
 		/*
-		 * Restore the hooks and the `rest_api_init` count right away instead of after the
-		 * class. The first test of a run snapshots the hooks and every test resets them to
-		 * that snapshot, so changes left here would leak into every later test whenever this
-		 * class runs first.
+		 * Restore the hooks right away instead of after the class. The first test of a run
+		 * snapshots the hooks and every test resets them to that snapshot, so changes left
+		 * here would leak into every later test whenever this class runs first.
 		 */
 		remove_action( 'wp_abilities_api_categories_init', 'wp_register_core_ability_categories' );
 		remove_action( 'wp_abilities_api_init', 'wp_register_core_abilities' );
 		add_action( 'wp_abilities_api_categories_init', '_unhook_core_ability_categories_registration', 1 );
 		add_action( 'wp_abilities_api_init', '_unhook_core_abilities_registration', 1 );
-		if ( null !== $rest_api_init_count ) {
-			$wp_actions['rest_api_init'] = $rest_api_init_count;
-		}
 	}
 
 	/**
